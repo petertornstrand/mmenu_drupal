@@ -1,0 +1,5 @@
+name = Mmenu
+description = A jQuery plugin for creating slick, app look-alike sliding menus for you mobile website with only one line of javascript.
+core = 7.x
+dependencies[] = libraries
+dependencies[] = menu_block

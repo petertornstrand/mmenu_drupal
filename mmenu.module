@@ -1,0 +1,410 @@
+<?php
+/**
+ * @file
+ * mmenu.module
+ */
+
+/**
+ * Denotes that the tree should use the menu picked by the curent page.
+ */
+define('MMENU_TREE__CURRENT_PAGE_MENU', '_active');
+
+/**
+ * Implements hook_init().
+ */
+function mmenu_init() {
+  $lib = libraries_get_path('mmenu');
+  $module_path = drupal_get_path('module', 'mmenu');
+  if ($lib) {
+    drupal_add_js($lib . '/jquery.mmenu.js', array('group' => JS_LIBRARY));
+    drupal_add_css($lib . '/mmenu.css');
+    drupal_add_js($module_path . '/mmenu.js');
+    drupal_add_css($module_path . '/mmenu.theme.css');
+  }
+}
+
+/**
+ * Implements hook_block_info().
+ */
+function mmenu_block_info() {
+  $blocks['mmenu'] = array(
+    'info' => t('Mobile menu'),
+    'cache' => DRUPAL_NO_CACHE,
+  );
+  return $blocks;
+}
+
+/**
+ * Implements hook_block_view().
+ */
+function mmenu_block_view($delta = '') {
+  $config = array(
+    'delta' => 'mmenu-menu',
+    'menu_name' => 'main-menu',
+    'parent_mlid' => 0,
+    'title_link' => 0,
+    'admin_title' => t('Mobile menu'),
+    'level' => 1,
+    'follow' => 0,
+    'depth' => 0,
+    'expanded' => 1,
+    'sort' => 0,
+  );
+  
+  $data = mmenu_tree_build($config);
+  return $data;
+}
+
+/**
+ * Implements hook_theme().
+ */
+function mmenu_theme($existing, $type, $theme, $path) {
+  return array(
+    'mmenu_wrapper' => array(
+      'template' => 'mmenu-wrapper',
+      'variables' => array('content' => array(), 'config' => array(), 'delta' => NULL),
+      'pattern' => 'mmenu_wrapper__',
+    ),
+  );
+}
+
+/* ============================================================================
+   Functions copied from Menu block module. Function names, templates, and
+   constants have new names to avoid clashes.
+   ========================================================================= */
+
+/**
+ * Build a menu tree based on the provided configuration.
+ *
+ * @param $config
+ *   array An array of configuration options that specifies how to build the
+ *   menu tree and its title.
+ *   - delta: (string) The menu_block's block delta.
+ *   - menu_name: (string) The machine name of the requested menu. Can also be
+ *     set to MMENU_TREE__CURRENT_PAGE_MENU to use the menu selected by the page.
+ *   - parent_mlid: (int) The mlid of the item that should root the tree. Use 0
+ *     to use the menu's root.
+ *   - title_link: (boolean) Specifies if the title should be rendered as a link
+ *     or a simple string.
+ *   - admin_title: (string) An optional title to uniquely identify the block on
+ *     the administer blocks page.
+ *   - level: (int) The starting level of the tree.
+ *   - follow: (string) Specifies if the starting level should follow the
+ *     active menu item. Should be set to 0, 'active' or 'child'.
+ *   - depth: (int) The maximum depth the tree should contain, relative to the
+ *     starting level.
+ *   - expanded: (boolean) Specifies if the entire tree be expanded or not.
+ *   - sort: (boolean) Specifies if the tree should be sorted with the active
+ *     trail at the top of the tree.
+ * @return
+ *   array An associative array containing several pieces of data.
+ *   - content: The tree as a renderable array.
+ *   - subject: The title rendered as HTML.
+ *   - subject_array: The title as a renderable array.
+ */
+function mmenu_tree_build($config) {
+  // Retrieve the active menu item from the database.
+  if ($config['menu_name'] == MMENU_TREE__CURRENT_PAGE_MENU) {
+    // Retrieve the list of available menus.
+    $menu_order = variable_get('mmenu_menu_order', array('main-menu' => '', 'user-menu' => ''));
+
+    // Check for regular expressions as menu keys.
+    $patterns = array();
+    foreach (array_keys($menu_order) as $pattern) {
+      if ($pattern[0] == '/') {
+        $patterns[$pattern] = NULL;
+      }
+    }
+
+    // Retrieve all the menus containing a link to the current page.
+    $result = db_query("SELECT menu_name FROM {menu_links} WHERE link_path = :link_path", array(':link_path' => $_GET['q'] ? $_GET['q'] : '<front>'));
+    foreach ($result as $item) {
+      // Check if the menu is in the list of available menus.
+      if (isset($menu_order[$item->menu_name])) {
+        // Mark the menu.
+        $menu_order[$item->menu_name] = MMENU_TREE__CURRENT_PAGE_MENU;
+      }
+      else {
+        // Check if the menu matches one of the available patterns.
+        foreach (array_keys($patterns) as $pattern) {
+          if (preg_match($pattern, $item->menu_name)) {
+            // Mark the menu.
+            $menu_order[$pattern] = MMENU_TREE__CURRENT_PAGE_MENU;
+            // Store the actual menu name.
+            $patterns[$pattern] = $item->menu_name;
+          }
+        }
+      }
+    }
+    // Find the first marked menu.
+    $config['menu_name'] = array_search(MMENU_TREE__CURRENT_PAGE_MENU, $menu_order);
+    // If a pattern was matched, use the actual menu name instead of the pattern.
+    if (!empty($patterns[$config['menu_name']])) {
+      $config['menu_name'] = $patterns[$config['menu_name']];
+    }
+    $config['parent_mlid'] = 0;
+
+    // If no menu link was found, don't display the block.
+    if (empty($config['menu_name'])) {
+      return array();
+    }
+  }
+
+  // Get the default block name.
+  $menu_names = mmenu_get_all_menus();
+  mmenu_set_title(t($menu_names[$config['menu_name']]));
+
+  if ($config['expanded'] || $config['parent_mlid']) {
+    // Get the full, un-pruned tree.
+    $tree = menu_tree_all_data($config['menu_name']);
+    // And add the active trail data back to the full tree.
+    menu_tree_add_active_path($tree);
+  }
+  else {
+    // Get the tree pruned for just the active trail.
+    $tree = menu_tree_page_data($config['menu_name']);
+  }
+
+  // Allow alteration of the tree and config before we begin operations on it.
+  drupal_alter('mmenu_tree', $tree, $config);
+
+  // Localize the tree.
+  if (module_exists('i18n_menu')) {
+    $tree = i18n_menu_localize_tree($tree);
+  }
+
+  // Prune the tree along the active trail to the specified level.
+  if ($config['level'] > 1 || $config['parent_mlid']) {
+    if ($config['parent_mlid']) {
+      $parent_item = menu_link_load($config['parent_mlid']);
+      menu_tree_prune_tree($tree, $config['level'], $parent_item);
+    }
+    else {
+      menu_tree_prune_tree($tree, $config['level']);
+    }
+  }
+
+  // Prune the tree to the active menu item.
+  if ($config['follow']) {
+    menu_tree_prune_active_tree($tree, $config['follow']);
+  }
+
+  // If the menu-item-based tree is not "expanded", trim the tree to the active path.
+  if ($config['parent_mlid'] && !$config['expanded']) {
+    menu_tree_trim_active_path($tree);
+  }
+
+  // Trim the branches that extend beyond the specified depth.
+  if ($config['depth'] > 0) {
+    menu_tree_depth_trim($tree, $config['depth']);
+  }
+
+  // Sort the active path to the top of the tree.
+  if ($config['sort']) {
+    menu_tree_sort_active_path($tree);
+  }
+
+  // Render the tree.
+  $data = array();
+  $title = mmenu_get_title($config['title_link'], $config);
+  $data['subject_array'] = $title;
+  $data['subject'] = drupal_render($title);
+  $data['content']['#content'] = mmenu_tree_output($tree, $config);
+  if (!empty($data['content']['#content'])) {
+    $data['content']['#theme'] = array(
+      'mmenu_wrapper__' . str_replace('-', '_', $config['delta']),
+      'mmenu_wrapper__' . str_replace('-', '_', $config['menu_name']),
+      'mmenu_wrapper'
+    );
+    $data['content']['#config'] = $config;
+    $data['content']['#delta'] = $config['delta'];
+  }
+  else {
+    $data['content'] = '';
+  }
+
+  return $data;
+}
+
+/**
+ * Returns a rendered menu tree.
+ *
+ * This is a copy of menu_tree_output() with additional classes added to the
+ * output.
+ *
+ * @param $tree
+ *   array A data structure representing the tree as returned from menu_tree_data.
+ * @return
+ *   string The rendered HTML of that data structure.
+ */
+function mmenu_tree_output(&$tree, $config = array()) {
+  $build = array();
+  $items = array();
+
+  // Create context if no config was provided.
+  if (empty($config)) {
+    $config['delta'] = 0;
+    // Grab any menu item to find the menu_name for this tree.
+    $menu_item = current($tree);
+    $config['menu_name'] = $menu_item['link']['menu_name'];
+  }
+  $hook_delta = str_replace('-', '_', $config['delta']);
+  $hook_menu_name = str_replace('-', '_', $config['menu_name']);
+
+  // Pull out just the menu items we are going to render so that we
+  // get an accurate count for the first/last classes.
+  foreach ($tree as $key => &$value) {
+    if (!$tree[$key]['link']['hidden']) {
+      $items[] = $tree[$key];
+    }
+  }
+
+  $num_items = count($items);
+  foreach ($items as $i => &$data) {
+    $class = array();
+    if ($i == 0) {
+      $class[] = 'first';
+    }
+    if ($i == $num_items - 1) {
+      $class[] = 'last';
+    }
+    // Set a class if the link has children.
+    if ($data['below']) {
+      $class[] = 'expanded';
+    }
+    elseif ($data['link']['has_children']) {
+      $class[] = 'collapsed';
+    }
+    else {
+      $class[] = 'leaf';
+    }
+    if (!empty($data['link']['leaf_has_children'])) {
+      $class[] = 'has-children';
+    }
+    // Set a class if the link is in the active trail.
+    if ($data['link']['in_active_trail']) {
+      $class[] = 'active-trail';
+      $data['link']['localized_options']['attributes']['class'][] = 'active-trail';
+    }
+    if ($data['link']['href'] == $_GET['q'] || ($data['link']['href'] == '<front>' && drupal_is_front_page())) {
+      $class[] = 'active';
+    }
+    // Set a menu link ID class.
+    $class[] = 'menu-mlid-' . $data['link']['mlid'];
+
+    // Allow menu-specific theme overrides.
+    $element['#theme'] = array(
+      'menu_link__mmenu__' . $hook_delta,
+      'menu_link__mmenu__' . $hook_menu_name,
+      'menu_link__mmenu',
+      'menu_link__' . $hook_menu_name,
+      'menu_link',
+    );
+    $element['#attributes']['class'] = $class;
+    $element['#title'] = $data['link']['title'];
+    $element['#href'] = $data['link']['href'];
+    $element['#localized_options'] = !empty($data['link']['localized_options']) ? $data['link']['localized_options'] : array();
+    $element['#below'] = $data['below'] ? mmenu_tree_output($data['below'], $config) : $data['below'];
+    $element['#original_link'] = $data['link'];
+    $element['#bid'] = array('module' => 'menu_block', 'delta' => $config['delta']);
+    // Index using the link's unique mlid.
+    $build[$data['link']['mlid']] = $element;
+  }
+  if ($build) {
+    // Make sure drupal_render() does not re-order the links.
+    $build['#sorted'] = TRUE;
+    // Add the theme wrapper for outer markup.
+    // Allow menu-specific theme overrides.
+    $build['#theme_wrappers'][] = array(
+      'menu_tree__mmenu__' . $hook_delta,
+      'menu_tree__mmenu__' . $hook_menu_name,
+      'menu_tree__mmenu',
+      'menu_tree__' . $hook_menu_name,
+      'menu_tree',
+    );
+  }
+
+  return $build;
+}
+
+/**
+ * Returns a list of menu names implemented by all modules.
+ *
+ * @return
+ *   array A list of menu names and titles.
+ */
+function mmenu_get_all_menus() {
+  $all_menus = &drupal_static(__FUNCTION__);
+
+  if (!$all_menus) {
+    if ($cached = cache_get('mmenu_menus', 'cache_menu')) {
+      $all_menus = $cached->data;
+    }
+    else {
+      // Retrieve core's menus.
+      $all_menus = menu_get_menus();
+      // Add an option to use the menu for the active menu item.
+      $all_menus[MMENU_TREE__CURRENT_PAGE_MENU] = '<' . t('The menu selected by the page') . '>';
+      asort($all_menus);
+      cache_set('mmenu_menus', $all_menus, 'cache_menu');
+    }
+  }
+  return $all_menus;
+}
+
+/**
+ * Sets the menu item to use for the tree's title.
+ *
+ * @param $item
+ *   array The menu item (an array) or the menu item's title as a string.
+ */
+function mmenu_set_title($item = NULL) {
+  $menu_item = &drupal_static(__FUNCTION__);
+
+  // Save the menu item.
+  if (!is_null($item)) {
+    $menu_item = $item;
+  }
+
+  return $menu_item;
+}
+
+/**
+ * Retrieves the menu item to use for the tree's title.
+ *
+ * @param $render_title_as_link
+ *   boolean A boolean that says whether to render the title as a link or a
+ *   simple string.
+ * @return
+ *   array A renderable array containing the tree's title.
+ */
+function mmenu_get_title($render_title_as_link = TRUE) {
+  $menu_item = mmenu_set_title();
+
+  // The tree's title is a menu title, a normal string.
+  if (is_string($menu_item)) {
+    $title = array('#markup' => check_plain($menu_item));
+  }
+  // The tree's title is a menu item with a link.
+  elseif ($render_title_as_link) {
+    if (!empty($menu_item['in_active_trail'])) {
+      if (!empty($menu_item['localized_options']['attributes']['class'])) {
+        $menu_item['localized_options']['attributes']['class'][] = 'active-trail';
+      }
+      else {
+        $menu_item['localized_options']['attributes']['class'][] = 'active-trail';
+      }
+    }
+    $title = array(
+      '#type' => 'link',
+      '#title' => $menu_item['title'],
+      '#href' => $menu_item['href'],
+      '#options' => $menu_item['localized_options'],
+    );
+  }
+  // The tree's title is a menu item.
+  else {
+    $title = array('#markup' => check_plain($menu_item['title']));
+  }
+  return $title;
+}
