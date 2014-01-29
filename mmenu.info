@@ -3,3 +3,5 @@ description = A jQuery plugin for creating slick, app look-alike sliding menus f
 core = 7.x
 dependencies[] = libraries
 dependencies[] = menu_block
+
+files[] = tests/block.test

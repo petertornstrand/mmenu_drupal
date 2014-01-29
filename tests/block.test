@@ -1,0 +1,15 @@
+<?php
+class MMenuBlockTestCase extends DrupalUnitTestCase {
+  public static function getInfo() {
+    return array(
+      'name' => 'Mmenu block test',
+      'description' => 'Test that module defines a block.',
+      'group' => 'Mmenu tests',
+    );
+  }
+
+  public function testAssertTrue() {
+  	$blocks = mmenu_block_info();
+  	$this->assert(isset($blocks['mmenu']));
+  }
+}
