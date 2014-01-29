@@ -28,7 +28,7 @@ before_script:
   - mysql -e 'create database mmenu_test'
   - php -d sendmail_path=`which true` `pear config-get php_dir`/drush/drush.php --yes core-quick-drupal --profile=testing --no-server --db-url=mysql://root:@127.0.0.1/mmenu_test --enable=simpletest mmenu
 
-  # reference and enable travis_ci_drupal_module_example in build site
+  # reference and enable mmenu in build site
   - ln -s $(readlink -e $(cd -)) mmenu_test/drupal/sites/all/modules/mmenu
   - cd mmenu_test/drupal
   - drush --yes pm-enable mmenu
