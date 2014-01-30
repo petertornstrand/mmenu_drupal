@@ -29,7 +29,8 @@ before_script:
   - php -d sendmail_path=`which true` `pear config-get php_dir`/drush/drush.php --yes core-quick-drupal --profile=testing --no-server --db-url=mysql://root:@127.0.0.1/mmenu_test --enable=simpletest mmenu
 
   # reference and enable mmenu in build site
-  - cd mmenu_drupal/drupal
+  - ln -s $(readlink -e $(cd -)) /home/travis/build/mmenu/drupal/sites/all/modules/mmenu
+  - cd drupal
   - drush --yes pm-enable mmenu
 
   # start a web server on port 8080, run in the background; wait for initialization
