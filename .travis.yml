@@ -21,7 +21,6 @@ install:
   - phpenv rehash
 
 before_script:
-  - pwd
   # navigate out of module directory to prevent blown stack by recursive module lookup
   - cd ../..
 
@@ -30,9 +29,8 @@ before_script:
   - php -d sendmail_path=`which true` `pear config-get php_dir`/drush/drush.php --yes core-quick-drupal --profile=testing --no-server --db-url=mysql://root:@127.0.0.1/mmenu_test --enable=simpletest
 
   # reference and enable mmenu in build site
-  - pwd
-  - ln -s $(readlink -e $(cd -)) /home/travis/build/mmenu/drupal/sites/all/modules/mmenu
-  - cd /home/travis/build/mmenu/drupal/
+  - cd quick-drupal-*
+  - ln -s /home/travis/build/petertornstrand/mmenu_drupal sites/all/modules/mmenu
   - drush --yes pm-enable mmenu
 
   # start a web server on port 8080, run in the background; wait for initialization
