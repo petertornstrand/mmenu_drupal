@@ -8,8 +8,8 @@ class MMenuBlockTestCase extends DrupalUnitTestCase {
     );
   }
 
-  public function testAssertTrue() {
+  public function testBlockDefined() {
   	$blocks = mmenu_block_info();
-  	$this->assert(isset($blocks['mmenu']));
+  	$this->assert(isset($blocks['mmenu']), 'The Mmenu block should be defined.');
   }
 }
